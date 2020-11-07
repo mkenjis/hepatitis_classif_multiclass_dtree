@@ -1,0 +1,224 @@
+---- Feature extraction & Data Munging --------------
+
+val df = spark.read.format("csv").option("header","true").option("inferSchema","true").load("hepatitis/hcvdat0.csv")
+
+scala> df.printSchema
+root
+ |-- _c0: integer (nullable = true)
+ |-- Category: string (nullable = true)
+ |-- Age: integer (nullable = true)
+ |-- Sex: string (nullable = true)
+ |-- ALB: string (nullable = true)
+ |-- ALP: string (nullable = true)
+ |-- ALT: string (nullable = true)
+ |-- AST: double (nullable = true)
+ |-- BIL: double (nullable = true)
+ |-- CHE: double (nullable = true)
+ |-- CHOL: string (nullable = true)
+ |-- CREA: double (nullable = true)
+ |-- GGT: double (nullable = true)
+ |-- PROT: string (nullable = true)
+ 
+scala> df.show(10)
++---+-------------+---+---+----+----+----+----+----+-----+----+-----+----+----+
+|_c0|     Category|Age|Sex| ALB| ALP| ALT| AST| BIL|  CHE|CHOL| CREA| GGT|PROT|
++---+-------------+---+---+----+----+----+----+----+-----+----+-----+----+----+
+|  1|0=Blood Donor| 32|  m|38.5|52.5| 7.7|22.1| 7.5| 6.93|3.23|106.0|12.1|  69|
+|  2|0=Blood Donor| 32|  m|38.5|70.3|  18|24.7| 3.9|11.17| 4.8| 74.0|15.6|76.5|
+|  3|0=Blood Donor| 32|  m|46.9|74.7|36.2|52.6| 6.1| 8.84| 5.2| 86.0|33.2|79.3|
+|  4|0=Blood Donor| 32|  m|43.2|  52|30.6|22.6|18.9| 7.33|4.74| 80.0|33.8|75.7|
+|  5|0=Blood Donor| 32|  m|39.2|74.1|32.6|24.8| 9.6| 9.15|4.32| 76.0|29.9|68.7|
+|  6|0=Blood Donor| 32|  m|41.6|43.3|18.5|19.7|12.3| 9.92|6.05|111.0|91.0|  74|
+|  7|0=Blood Donor| 32|  m|46.3|41.3|17.5|17.8| 8.5| 7.01|4.79| 70.0|16.9|74.5|
+|  8|0=Blood Donor| 32|  m|42.2|41.9|35.8|31.1|16.1| 5.82| 4.6|109.0|21.5|67.1|
+|  9|0=Blood Donor| 32|  m|50.9|65.5|23.2|21.2| 6.9| 8.69| 4.1| 83.0|13.7|71.3|
+| 10|0=Blood Donor| 32|  m|42.4|86.3|20.3|20.0|35.2| 5.46|4.45| 81.0|15.9|69.9|
++---+-------------+---+---+----+----+----+----+----+-----+----+-----+----+----+
+
+
+import org.apache.spark.sql.types._
+
+val df1 = df.where("ALP <> 'NA'").withColumn("mALP",df.col("ALP").cast(DoubleType))
+
+df1.groupBy("Category").agg(round(avg(df1.col("mALP")),2)).show
++--------------------+-------------------+
+|            Category|round(avg(mALP), 2)|
++--------------------+-------------------+
+|       0=Blood Donor|              68.37|
+|         3=Cirrhosis|              93.22|
+|          2=Fibrosis|              37.84|
+|0s=suspect Blood ...|              107.3|
+|         1=Hepatitis|              42.11|
++--------------------+-------------------+
+
+val df1 = df.where("CHOL <> 'NA'").withColumn("mCHOL",df.col("CHOL").cast(DoubleType))
+
+df1.groupBy("Category").agg(round(avg(df1.col("mCHOL")),2)).show
++--------------------+--------------------+
+|            Category|round(avg(mCHOL), 2)|
++--------------------+--------------------+
+|       0=Blood Donor|                5.49|
+|         3=Cirrhosis|                4.01|
+|          2=Fibrosis|                 4.6|
+|0s=suspect Blood ...|                4.45|
+|         1=Hepatitis|                 5.1|
++--------------------+--------------------+
+
+
+val df2 = df.withColumn("ALPx",when(col("Category") === "0=Blood Donor" && col("ALP") === "NA","68.37")
+                    .when(col("Category") === "1=Hepatitis" && col("ALP") === "NA","42.11")
+                    .when(col("Category") === "2=Fibrosis" && col("ALP") === "NA","37.84")
+                    .when(col("Category") === "3=Cirrhosis" && col("ALP") === "NA","93.22")
+                    .otherwise(col("ALP"))).
+             withColumn("CHOLx",when(col("Category") === "0=Blood Donor" && col("CHOL") === "NA","5.49")
+                    .when(col("Category") === "1=Hepatitis" && col("CHOL") === "NA","5.1")
+                    .when(col("Category") === "2=Fibrosis" && col("CHOL") === "NA","4.6")
+                    .when(col("Category") === "3=Cirrhosis" && col("CHOL") === "NA","4.01")
+                    .otherwise(col("CHOL")))					
+
+scala> df2.printSchema
+root
+ |-- _c0: integer (nullable = true)
+ |-- Category: string (nullable = true)
+ |-- Age: integer (nullable = true)
+ |-- Sex: string (nullable = true)
+ |-- ALB: string (nullable = true)
+ |-- ALP: string (nullable = true)
+ |-- ALT: string (nullable = true)
+ |-- AST: double (nullable = true)
+ |-- BIL: double (nullable = true)
+ |-- CHE: double (nullable = true)
+ |-- CHOL: string (nullable = true)
+ |-- CREA: double (nullable = true)
+ |-- GGT: double (nullable = true)
+ |-- PROT: string (nullable = true)
+ |-- ALPx: string (nullable = true)
+ |-- CHOLx: string (nullable = true)
+
+df2.count
+res7: Long = 615
+					
+val rdd2 = df2.where("ALB <> 'NA' and ALT <> 'NA' and PROT <> 'NA'").rdd.map( x => x.toSeq.toArray)
+
+rdd2.count
+res8: Long = 612
+
+val categ_sex = rdd2.map(x => x(3)).distinct.zipWithIndex.collect.toMap
+categ_sex: scala.collection.immutable.Map[Any,Long] = Map(f -> 0, m -> 1)
+
+val categ_result = rdd2.map(x => x(1)).distinct.zipWithIndex.collect.toMap
+categ_result: scala.collection.immutable.Map[Any,Long] = Map(3=Cirrhosis -> 2, 1=Hepatitis -> 1, 2=Fibrosis -> 4, 0=Blood Donor -> 3, 0s=suspect Blood Donor -> 0)
+
+val rdd1 = rdd2.map( x => {
+  val result = categ_result(x(1))
+  val sex = categ_sex(x(3))
+  val arr = Array(result,x(2),sex,x(4),x(14),x(6),x(7),x(8),x(9),x(15),x(11),x(12),x(13) )
+  arr
+})
+
+val rdd = rdd1.map( x => x.map( y => y.toString.toDouble))
+
+rdd.take(5)
+res5: Array[Array[Double]] = Array(Array(3.0, 32.0, 1.0, 38.5, 52.5, 7.7, 22.1, 7.5, 6.93, 3.23, 106.0, 12.1, 69.0), Array(3.0, 32.0, 1.0, 38.5, 70.3, 18.0, 24.7, 3.9, 11.17, 4.8, 74.0, 15.6, 76.5), Array(3.0, 32.0, 1.0, 46.9, 74.7, 36.2, 52.6, 6.1, 8.84, 5.2, 86.0, 33.2, 79.3), Array(3.0, 32.0, 1.0, 43.2, 52.0, 30.6, 22.6, 18.9, 7.33, 4.74, 80.0, 33.8, 75.7), Array(3.0, 32.0, 1.0, 39.2, 74.1, 32.6, 24.8, 9.6, 9.15, 4.32, 76.0, 29.9, 68.7))
+
+import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.regression.LabeledPoint
+
+val data = rdd.map( x => {
+  val arr_size = x.size
+  val l = x(0)
+  val f = Vectors.dense(x.slice(1, arr_size))
+  LabeledPoint(l,f)
+})
+
+val sets = data.randomSplit(Array(0.8,0.2))
+val trainSet = sets(0)
+val testSet = sets(1)
+
+trainSet.cache
+
+---- MLlib MultiClass logistic regression --------------
+
+import org.apache.spark.mllib.classification.{LogisticRegressionModel, LogisticRegressionWithLBFGS}
+val numIterations = 100
+val model = new LogisticRegressionWithLBFGS().setNumClasses(5).run(trainSet)
+
+val validPredicts = testSet.map(x => (model.predict(x.features),x.label))
+
+validPredicts.take(20)
+res10: Array[(Double, Double)] = Array((3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0))
+
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+val metrics = new MulticlassMetrics(validPredicts)
+validPredicts.filter(x => x._1 == x._2).count  // 120
+validPredicts.count                            // 124
+val accuracy = metrics.accuracy   // 0.967741935483871
+
+metrics.confusionMatrix
+res13: org.apache.spark.mllib.linalg.Matrix =
+1.0  0.0  0.0  0.0    0.0
+0.0  4.0  1.0  0.0    2.0
+0.0  0.0  4.0  0.0    0.0
+1.0  0.0  0.0  109.0  0.0
+0.0  0.0  0.0  0.0    2.0
+
+
+---- MLlib Decision Tree regression --------------
+
+import org.apache.spark.mllib.tree.DecisionTree
+import org.apache.spark.mllib.tree.model.DecisionTreeModel
+
+val categoricalFeaturesInfo = Map[Int, Int]( 1 -> 2 )
+
+val model = DecisionTree.trainClassifier(trainSet, 5, categoricalFeaturesInfo, "gini", 30, 32)
+
+model.toDebugString
+res14: String =
+"DecisionTreeModel classifier of depth 7 with 63 nodes
+  If (feature 5 <= 55.8)
+   If (feature 4 <= 5.25)
+    If (feature 2 <= 39.25)
+     Predict: 2.0
+    Else (feature 2 > 39.25)
+     If (feature 0 <= 33.5)
+      Predict: 1.0
+     Else (feature 0 > 33.5)
+      If (feature 0 <= 57.5)
+       Predict: 3.0
+      Else (feature 0 > 57.5)
+       Predict: 4.0
+   Else (feature 4 > 5.25)
+    If (feature 3 <= 42.9)
+     If (feature 5 <= 29.45)
+      If (feature 2 <= 28.55)
+       Predict: 0.0
+      Else (feature 2 > 28.55)
+       Predict: 3.0
+     Else (feature 5 > 29.45)
+      If (feature 0 <= 50.5)
+       If (feature 7 <= 6.495)
+        Predict: 3.0
+       Else (feature 7 > 6.495)
+        Predict: 1.0
+      Else (feature 0 > 50.5)
+       If (feature 3 <= 40.8)
+        Predict: ...
+		
+val validPredicts = testSet.map(x => (model.predict(x.features),x.label))
+
+validPredicts.take(20)
+res15: Array[(Double, Double)] = Array((3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0), (3.0,3.0))
+
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+val metrics = new MulticlassMetrics(validPredicts)
+validPredicts.filter(x => x._1 == x._2).count  // 117
+validPredicts.count                            // 124
+val accuracy = metrics.accuracy   // 0.9435483870967742
+
+metrics.confusionMatrix
+res18: org.apache.spark.mllib.linalg.Matrix =
+0.0  0.0  1.0  0.0    0.0
+0.0  4.0  1.0  0.0    2.0
+0.0  0.0  4.0  0.0    0.0
+0.0  1.0  0.0  108.0  1.0
+0.0  1.0  0.0  0.0    1.0
